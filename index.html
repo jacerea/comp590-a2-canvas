@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>COMP 590 - Assignment 2</title>
+  <style>
+    body { margin: 0; background: #1a1a2e; display: flex;
+           justify-content: center; align-items: center; height: 100vh; }
+    /* Canvas size comes from the width/height attributes, not CSS —
+       CSS sizing stretches pixels and looks blurry. */
+    canvas { background: #0f3460; border: 1px solid #444; }
+  </style>
+</head>
+<body>
+  <canvas id="scene" width="800" height="600"></canvas>
+
+  <script>
+  const canvas = document.getElementById('scene');
+  const ctx = canvas.getContext('2d');
+
+  // ===================================================================
+  // Node: one piece of a hierarchical object. Its transform is relative
+  // to its parent, so children inherit whatever the parent applied —
+  // same idea as a Transform component in Unity.
+  // ===================================================================
+  class Node {
+    constructor(options = {}) {
+      this.x = options.x ?? 0;                 // position relative to parent
+      this.y = options.y ?? 0;
+      this.rotation = options.rotation ?? 0;   // radians
+
+      // Separate axes so a node can squash/stretch, not just resize.
+      this.scaleX = options.scaleX ?? options.scale ?? 1;
+      this.scaleY = options.scaleY ?? options.scale ?? 1;
+
+      this.children = [];
+
+      // Draws this node in its OWN local space — it can assume it sits
+      // at the origin, unrotated.
+      this.render = options.render ?? null;
+
+      // Per-node animation, run once per frame.
+      this.behavior = options.behavior ?? null;
+    }
+
+    add(child) {
+      this.children.push(child);
+      return child;   // returned so we can hold a reference while building
+    }
+
+    update(dt, elapsed) {
+      if (this.behavior) this.behavior(this, dt, elapsed);
+      for (const child of this.children) child.update(dt, elapsed);
+    }
+
+    draw(ctx) {
+      // Push the current transform so we can undo everything below.
+      ctx.save();
+
+      // Order matters: translate, rotate, then scale. Rotating first
+      // would swing the translation around with it.
+      ctx.translate(this.x, this.y);
+      ctx.rotate(this.rotation);
+      ctx.scale(this.scaleX, this.scaleY);
+
+      if (this.render) this.render(ctx);
+
+      // Children draw inside this transform, so their coordinates are
+      // relative to this node. That's what makes the hierarchy work.
+      for (const child of this.children) child.draw(ctx);
+
+      // Pop back to the parent's transform. Every save() needs exactly
+      // one restore() or the stack drifts and the scene warps.
+      ctx.restore();
+    }
+  }
+
+
+  // ===================================================================
+  // JELLYFISH GEOMETRY
+  // ===================================================================
+
+  // Dome with a scalloped rim. Origin sits at the center of the rim, so
+  // the bell scales outward from there when it pulses.
+  function drawBell(ctx) {
+    ctx.fillStyle = 'rgba(180, 130, 255, 0.75)';
+    ctx.beginPath();
+    ctx.moveTo(-48, 0);
+    ctx.bezierCurveTo(-52, -58, 52, -58, 48, 0);
+    ctx.quadraticCurveTo(34, 14, 16, 0);
+    ctx.quadraticCurveTo(0, 14, -16, 0);
+    ctx.quadraticCurveTo(-34, 14, -48, 0);
+    ctx.closePath();
+    ctx.fill();
+
+    // Inner highlight — a smaller, brighter dome for a bit of depth.
+    ctx.fillStyle = 'rgba(226, 190, 255, 0.55)';
+    ctx.beginPath();
+    ctx.ellipse(-10, -26, 18, 13, -0.4, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // One tentacle segment: origin at its top joint, tapering downward.
+  // `w` is the width at the joint, `len` how far it hangs.
+  function drawTentacle(ctx, w, len, color) {
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.moveTo(-w, 0);
+    ctx.lineTo(w, 0);
+    ctx.lineTo(w * 0.55, len);
+    ctx.lineTo(-w * 0.55, len);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+
+  // ===================================================================
+  // CREATURE
+  //   jellyfish (drifts + thrusts)
+  //   ├── tentacle x5 ── segment ── segment    each tentacle is a
+  //   └── bell                                  3-link chain
+  //
+  // One pulse wave drives everything. Each tentacle segment lags the
+  // one above it in phase, so motion travels down the chain instead of
+  // the whole thing moving as a rigid block.
+  // ===================================================================
+
+  function makeCreature(config = {}) {
+    const baseY     = config.y ?? 300;
+    const speed     = config.speed ?? 45;      // px/sec of horizontal drift
+    const pulseRate = config.pulseRate ?? 2.2; // radians/sec into the sine
+    const phase     = config.phase ?? 0;       // desync creatures from each other
+    const size      = config.scale ?? 1;
+
+    const jelly = new Node({
+      x: config.x ?? 400,
+      y: baseY,
+      scale: size,
+      behavior: (node, dt, elapsed) => {
+        node.x += speed * dt;
+
+        // Wrap around once fully off the right edge. Scaled by size so
+        // the larger ones don't clip while they're still visible.
+        if (node.x - 140 * size > canvas.width) node.x = -140 * size;
+
+        // Rise on the contraction, sink slowly between pulses — jellyfish
+        // move by squeezing water out of the bell.
+        node.y = baseY + Math.sin(elapsed * pulseRate + phase) * 16;
+      }
+    });
+
+    // --- tentacles first so they hang behind the bell ---
+    // Draw order is depth; a 2D canvas has no z-buffer.
+    const anchors = [-32, -16, 0, 16, 32];
+
+    anchors.forEach((ax, i) => {
+      // Outer tentacles sway more than the middle ones.
+      const amp = 0.18 + Math.abs(ax) / 32 * 0.16;
+
+      const upper = jelly.add(new Node({
+        x: ax, y: 2,
+        render: (ctx) => drawTentacle(ctx, 7, 40, 'rgba(160, 110, 235, 0.65)'),
+        behavior: (node, dt, elapsed) => {
+          // i * 0.35 staggers the tentacles so they don't sway as one slab.
+          node.rotation = Math.sin(elapsed * pulseRate + phase + i * 0.35) * amp;
+        }
+      }));
+
+      const mid = upper.add(new Node({
+        x: 0, y: 38,
+        render: (ctx) => drawTentacle(ctx, 4.5, 36, 'rgba(150, 100, 225, 0.55)'),
+        behavior: (node, dt, elapsed) => {
+          // -0.6 lag: this segment reacts to the one above it late, which
+          // is what makes the motion look like it travels down the chain.
+          node.rotation = Math.sin(elapsed * pulseRate + phase + i * 0.35 - 0.6) * amp * 1.4;
+        }
+      }));
+
+      mid.add(new Node({
+        x: 0, y: 34,
+        render: (ctx) => drawTentacle(ctx, 2.8, 32, 'rgba(140, 95, 215, 0.45)'),
+        behavior: (node, dt, elapsed) => {
+          // Lags further still, and swings widest — the loose tip.
+          node.rotation = Math.sin(elapsed * pulseRate + phase + i * 0.35 - 1.2) * amp * 1.8;
+        }
+      }));
+    });
+
+    // --- bell drawn last so it sits in front of the tentacles ---
+    jelly.add(new Node({
+      x: 0, y: 0,
+      render: drawBell,
+      behavior: (node, dt, elapsed) => {
+        const p = Math.sin(elapsed * pulseRate + phase);
+        // Squash and stretch: widening as it flattens conserves apparent
+        // volume, which is what makes the pulse read as a muscle rather
+        // than the whole shape just growing.
+        node.scaleX = 1 + p * 0.10;
+        node.scaleY = 1 - p * 0.13;
+      }
+    }));
+
+    // Assignment 3 hooks — not read yet.
+    jelly.points = config.points ?? 10;
+    jelly.alive = true;
+
+    return jelly;
+  }
+
+
+  // ===================================================================
+  // SEABED
+  // ===================================================================
+
+  // One seaweed segment: origin at its BOTTOM joint, growing upward
+  // (negative y), tapering as it goes.
+  function drawFrond(ctx, w, len, color) {
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.moveTo(-w, 0);
+    ctx.lineTo(w, 0);
+    ctx.lineTo(w * 0.6, -len);
+    ctx.lineTo(-w * 0.6, -len);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  // A seaweed stalk: a chain of segments, each parented to the one
+  // below it. Same lag trick as the tentacles — the sway starts at the
+  // base and travels up, so the tip whips furthest and latest.
+  function makeSeaweed(config = {}) {
+    const swayRate = config.swayRate ?? 0.9;
+    const phase    = config.phase ?? 0;
+    const links    = config.links ?? 4;
+
+    const base = new Node({
+      x: config.x ?? 400,
+      y: canvas.height,
+      scale: config.scale ?? 1
+    });
+
+    let parent = base;
+    let width = 8;
+    let length = 46;
+
+    for (let i = 0; i < links; i++) {
+      // Fade and narrow toward the tip.
+      const shade = `rgba(45, ${130 - i * 12}, ${105 - i * 8}, ${0.85 - i * 0.09})`;
+      const w = width, len = length;
+
+      const seg = parent.add(new Node({
+        // Root sits at the seabed; every other link sits atop its parent.
+        y: i === 0 ? 0 : -length * 1.18,
+        render: (ctx) => drawFrond(ctx, w, len, shade),
+        behavior: (node, dt, elapsed) => {
+          // Amplitude grows with height and each link lags the one below,
+          // so the whole stalk ripples instead of pivoting rigidly.
+          const amp = 0.07 + i * 0.06;
+          node.rotation = Math.sin(elapsed * swayRate + phase - i * 0.45) * amp;
+        }
+      }));
+
+      parent = seg;
+      width *= 0.78;
+      length *= 0.88;
+    }
+
+    return base;
+  }
+
+  // Static coral clump — a fan of stubby branches from a common base.
+  // No animation: coral is rigid, and a still element gives the eye
+  // something to measure the moving parts against.
+  function makeCoral(config = {}) {
+    const color = config.color ?? 'rgba(230, 110, 140, 0.8)';
+
+    return new Node({
+      x: config.x ?? 400,
+      y: canvas.height,
+      scale: config.scale ?? 1,
+      render: (ctx) => {
+        ctx.fillStyle = color;
+
+        // Branch angles, in radians from vertical.
+        const branches = [-0.75, -0.35, 0, 0.35, 0.75];
+
+        for (const angle of branches) {
+          ctx.save();
+          ctx.rotate(angle);
+
+          const len = 34 + Math.abs(angle) * -18;   // outer branches shorter
+          ctx.beginPath();
+          ctx.moveTo(-5, 0);
+          ctx.lineTo(5, 0);
+          ctx.lineTo(2.5, -len);
+          ctx.lineTo(-2.5, -len);
+          ctx.closePath();
+          ctx.fill();
+
+          // Rounded tip.
+          ctx.beginPath();
+          ctx.arc(0, -len, 3.5, 0, Math.PI * 2);
+          ctx.fill();
+
+          ctx.restore();
+        }
+      }
+    });
+  }
+
+  // Seabed silhouette behind everything on the floor.
+  function drawSeabed(ctx) {
+    ctx.fillStyle = 'rgba(12, 38, 74, 0.9)';
+    ctx.beginPath();
+    ctx.moveTo(0, canvas.height);
+    ctx.lineTo(0, canvas.height - 28);
+    ctx.quadraticCurveTo(140, canvas.height - 58, 300, canvas.height - 34);
+    ctx.quadraticCurveTo(470, canvas.height - 12, 620, canvas.height - 44);
+    ctx.quadraticCurveTo(720, canvas.height - 64, canvas.width, canvas.height - 30);
+    ctx.lineTo(canvas.width, canvas.height);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+
+  // ===================================================================
+  // DRIFTING PARTICLES
+  // Flat objects, not Nodes — they have no parts, so a hierarchy would
+  // be overkill. Just enough motion to make the water feel occupied.
+  // ===================================================================
+
+  const particles = [];
+
+  for (let i = 0; i < 45; i++) {
+    particles.push({
+      x: Math.random() * canvas.width,
+      y: Math.random() * canvas.height,
+      radius: 1 + Math.random() * 2.5,
+      speed: 4 + Math.random() * 14,          // slow upward drift
+      swayAmp: 6 + Math.random() * 14,        // how far it wanders sideways
+      swayRate: 0.3 + Math.random() * 0.6,
+      phase: Math.random() * Math.PI * 2,     // so they don't sway in unison
+      alpha: 0.12 + Math.random() * 0.25
+    });
+  }
+
+  function updateParticles(dt) {
+    for (const p of particles) {
+      p.y -= p.speed * dt;
+
+      // Recycle off the bottom once it clears the top.
+      if (p.y < -5) {
+        p.y = canvas.height + 5;
+        p.x = Math.random() * canvas.width;
+      }
+    }
+  }
+
+  function drawParticles(elapsed) {
+    for (const p of particles) {
+      // Sway is computed at draw time from elapsed rather than stored,
+      // so it costs no state and never accumulates drift.
+      const x = p.x + Math.sin(elapsed * p.swayRate + p.phase) * p.swayAmp;
+
+      ctx.fillStyle = `rgba(200, 225, 255, ${p.alpha})`;
+      ctx.beginPath();
+      ctx.arc(x, p.y, p.radius, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+
+  // ===================================================================
+  // SCENE
+  // Varying size, speed, depth and pulse rate keeps the group from
+  // looking like copies. Smaller + faster reads as further away.
+  //
+  // `points` is unused in Assignment 2 (no input yet), but it's the
+  // hook Assignment 3 needs when these become shootable targets —
+  // smaller and faster is worth more.
+  // ===================================================================
+
+  const seabed = [
+    makeSeaweed({ x:  40, scale: 1.0,  swayRate: 0.8,  phase: 0.0, links: 5 }),
+    makeCoral  ({ x: 110, scale: 0.9,  color: 'rgba(228, 105, 135, 0.75)' }),
+    makeSeaweed({ x: 175, scale: 0.75, swayRate: 1.1,  phase: 2.1, links: 4 }),
+    makeSeaweed({ x: 215, scale: 1.15, swayRate: 0.7,  phase: 3.6, links: 5 }),
+    makeCoral  ({ x: 330, scale: 0.65, color: 'rgba(240, 165, 95, 0.7)'  }),
+    makeSeaweed({ x: 395, scale: 0.9,  swayRate: 0.95, phase: 1.2, links: 4 }),
+    makeSeaweed({ x: 445, scale: 1.05, swayRate: 0.75, phase: 4.4, links: 5 }),
+    makeCoral  ({ x: 560, scale: 1.0,  color: 'rgba(215, 120, 190, 0.72)' }),
+    makeSeaweed({ x: 625, scale: 0.8,  swayRate: 1.05, phase: 0.6, links: 4 }),
+    makeSeaweed({ x: 690, scale: 1.1,  swayRate: 0.85, phase: 2.8, links: 5 }),
+    makeCoral  ({ x: 755, scale: 0.75, color: 'rgba(235, 130, 120, 0.7)' })
+  ];
+
+  const scene = [
+    makeCreature({ x:  60, y: 140, scale: 0.55, speed: 78, pulseRate: 3.1, phase: 0.0, points: 30 }),
+    makeCreature({ x: 320, y: 230, scale: 0.75, speed: 58, pulseRate: 2.5, phase: 1.7, points: 20 }),
+    makeCreature({ x: 640, y: 130, scale: 0.45, speed: 95, pulseRate: 3.6, phase: 3.2, points: 40 }),
+    makeCreature({ x: 180, y: 380, scale: 1.15, speed: 34, pulseRate: 1.8, phase: 2.4, points: 10 }),
+    makeCreature({ x: 520, y: 440, scale: 0.95, speed: 44, pulseRate: 2.1, phase: 0.9, points: 15 }),
+    makeCreature({ x: 720, y: 330, scale: 0.65, speed: 66, pulseRate: 2.8, phase: 4.1, points: 25 })
+  ];
+
+
+  function update(dt, elapsed) {
+    updateParticles(dt);
+    for (const node of seabed) node.update(dt, elapsed);
+    for (const node of scene) node.update(dt, elapsed);
+  }
+
+  function draw(elapsed) {
+    // Canvas doesn't self-clear; without this every old frame stays painted.
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // Painter's order, back to front: particles, floor, plants, jellies.
+    drawParticles(elapsed);
+    drawSeabed(ctx);
+    for (const node of seabed) node.draw(ctx);
+    for (const node of scene) node.draw(ctx);
+  }
+
+  let lastTime = 0;
+  let elapsed = 0;   // total seconds since start, for sine-wave animation
+
+  function frame(timestamp) {
+    // Capped so the first frame (lastTime = 0) and tab-outs don't jump.
+    const dt = Math.min((timestamp - lastTime) / 1000, 0.05);
+    lastTime = timestamp;
+    elapsed += dt;
+
+    update(dt, elapsed);
+    draw(elapsed);
+
+    requestAnimationFrame(frame);   // re-arm; this is what makes it a loop
+  }
+
+  requestAnimationFrame(frame);
+  </script>
+</body>
+</html>
