@@ -6,8 +6,8 @@
   <style>
     body { margin: 0; background: #1a1a2e; display: flex;
            justify-content: center; align-items: center; height: 100vh; }
-    /* Canvas size comes from the width/height attributes, not CSS —
-       CSS sizing stretches pixels and looks blurry. */
+    /* size the canvas with the width/height attributes, not css.
+       css sizing just stretches the pixels and looks blurry */
     canvas { background: #0f3460; border: 1px solid #444; }
   </style>
 </head>
@@ -18,34 +18,33 @@
   const canvas = document.getElementById('scene');
   const ctx = canvas.getContext('2d');
 
-  // ===================================================================
-  // Node: one piece of a hierarchical object. Its transform is relative
-  // to its parent, so children inherit whatever the parent applied —
-  // same idea as a Transform component in Unity.
-  // ===================================================================
+  // node is one piece of a hierarchical object. its transform is
+  // relative to its parent, so children inherit whatever the parent
+  // already applied. basically a Transform component from unity.
   class Node {
     constructor(options = {}) {
-      this.x = options.x ?? 0;                 // position relative to parent
+      this.x = options.x ?? 0;
       this.y = options.y ?? 0;
-      this.rotation = options.rotation ?? 0;   // radians
+      this.rotation = options.rotation ?? 0;
 
-      // Separate axes so a node can squash/stretch, not just resize.
+      // separate x and y scale so a node can squash instead of just resize
       this.scaleX = options.scaleX ?? options.scale ?? 1;
       this.scaleY = options.scaleY ?? options.scale ?? 1;
 
       this.children = [];
 
-      // Draws this node in its OWN local space — it can assume it sits
-      // at the origin, unrotated.
+      // draws this node in its own local space, so it can assume it's
+      // sitting at the origin with no rotation
       this.render = options.render ?? null;
 
-      // Per-node animation, run once per frame.
+      // per node animation, runs once a frame
       this.behavior = options.behavior ?? null;
     }
 
+    // returns the child so i can keep a reference while building the tree
     add(child) {
       this.children.push(child);
-      return child;   // returned so we can hold a reference while building
+      return child;
     }
 
     update(dt, elapsed) {
@@ -54,34 +53,30 @@
     }
 
     draw(ctx) {
-      // Push the current transform so we can undo everything below.
+      // push the current transform so everything below can be undone
       ctx.save();
 
-      // Order matters: translate, rotate, then scale. Rotating first
-      // would swing the translation around with it.
+      // order matters here. rotating first would swing the translation
+      // around with it
       ctx.translate(this.x, this.y);
       ctx.rotate(this.rotation);
       ctx.scale(this.scaleX, this.scaleY);
 
       if (this.render) this.render(ctx);
 
-      // Children draw inside this transform, so their coordinates are
-      // relative to this node. That's what makes the hierarchy work.
+      // children draw inside this transform, so their coords are
+      // relative to this node. that's the whole hierarchy trick
       for (const child of this.children) child.draw(ctx);
 
-      // Pop back to the parent's transform. Every save() needs exactly
-      // one restore() or the stack drifts and the scene warps.
+      // pop back to the parent's transform. every save needs exactly one
+      // restore or the stack drifts and the scene warps
       ctx.restore();
     }
   }
 
 
-  // ===================================================================
-  // JELLYFISH GEOMETRY
-  // ===================================================================
-
-  // Dome with a scalloped rim. Origin sits at the center of the rim, so
-  // the bell scales outward from there when it pulses.
+  // dome with a scalloped rim. origin is at the center of the rim so the
+  // bell scales outward from there when it pulses
   function drawBell(ctx) {
     ctx.fillStyle = 'rgba(180, 130, 255, 0.75)';
     ctx.beginPath();
@@ -93,15 +88,15 @@
     ctx.closePath();
     ctx.fill();
 
-    // Inner highlight — a smaller, brighter dome for a bit of depth.
+    // smaller brighter dome inside for a bit of depth
     ctx.fillStyle = 'rgba(226, 190, 255, 0.55)';
     ctx.beginPath();
     ctx.ellipse(-10, -26, 18, 13, -0.4, 0, Math.PI * 2);
     ctx.fill();
   }
 
-  // One tentacle segment: origin at its top joint, tapering downward.
-  // `w` is the width at the joint, `len` how far it hangs.
+  // one tentacle segment. origin is at its top joint, tapers downward.
+  // w is the width at the joint, len is how far it hangs
   function drawTentacle(ctx, w, len, color) {
     ctx.fillStyle = color;
     ctx.beginPath();
@@ -114,22 +109,18 @@
   }
 
 
-  // ===================================================================
-  // CREATURE
-  //   jellyfish (drifts + thrusts)
-  //   ├── tentacle x5 ── segment ── segment    each tentacle is a
-  //   └── bell                                  3-link chain
-  //
-  // One pulse wave drives everything. Each tentacle segment lags the
-  // one above it in phase, so motion travels down the chain instead of
-  // the whole thing moving as a rigid block.
-  // ===================================================================
-
+  // builds one jellyfish. the tree is a body with five tentacles hanging
+  // off it, each tentacle being a chain of three segments, plus the bell.
+  // everything runs off one pulse wave. each segment lags the one above
+  // it, so motion travels down the chain instead of the whole thing
+  // swinging like a rigid block.
+  // speed is px per second sideways, pulseRate is radians per second, and
+  // phase desyncs each jellyfish from the others
   function makeCreature(config = {}) {
     const baseY     = config.y ?? 300;
-    const speed     = config.speed ?? 45;      // px/sec of horizontal drift
-    const pulseRate = config.pulseRate ?? 2.2; // radians/sec into the sine
-    const phase     = config.phase ?? 0;       // desync creatures from each other
+    const speed     = config.speed ?? 45;
+    const pulseRate = config.pulseRate ?? 2.2;
+    const phase     = config.phase ?? 0;
     const size      = config.scale ?? 1;
 
     const jelly = new Node({
@@ -139,68 +130,68 @@
       behavior: (node, dt, elapsed) => {
         node.x += speed * dt;
 
-        // Wrap around once fully off the right edge. Scaled by size so
-        // the larger ones don't clip while they're still visible.
+        // wrap once it's fully off the right edge. scaled by size so the
+        // big ones don't clip while they're still visible
         if (node.x - 140 * size > canvas.width) node.x = -140 * size;
 
-        // Rise on the contraction, sink slowly between pulses — jellyfish
-        // move by squeezing water out of the bell.
+        // rises on the contraction, sinks between pulses. jellyfish move
+        // by squeezing water out of the bell
         node.y = baseY + Math.sin(elapsed * pulseRate + phase) * 16;
       }
     });
 
-    // --- tentacles first so they hang behind the bell ---
-    // Draw order is depth; a 2D canvas has no z-buffer.
+    // tentacles go first so they end up behind the bell. draw order is
+    // depth, a 2d canvas has no z buffer
     const anchors = [-32, -16, 0, 16, 32];
 
     anchors.forEach((ax, i) => {
-      // Outer tentacles sway more than the middle ones.
+      // outer tentacles sway more than the middle ones
       const amp = 0.18 + Math.abs(ax) / 32 * 0.16;
 
+      // the i * 0.35 offset staggers the tentacles so they don't sway as
+      // one slab
       const upper = jelly.add(new Node({
         x: ax, y: 2,
         render: (ctx) => drawTentacle(ctx, 7, 40, 'rgba(160, 110, 235, 0.65)'),
         behavior: (node, dt, elapsed) => {
-          // i * 0.35 staggers the tentacles so they don't sway as one slab.
           node.rotation = Math.sin(elapsed * pulseRate + phase + i * 0.35) * amp;
         }
       }));
 
+      // the 0.6 lag means this segment reacts late to the one above it,
+      // which is what makes the motion look like it's traveling
       const mid = upper.add(new Node({
         x: 0, y: 38,
         render: (ctx) => drawTentacle(ctx, 4.5, 36, 'rgba(150, 100, 225, 0.55)'),
         behavior: (node, dt, elapsed) => {
-          // -0.6 lag: this segment reacts to the one above it late, which
-          // is what makes the motion look like it travels down the chain.
           node.rotation = Math.sin(elapsed * pulseRate + phase + i * 0.35 - 0.6) * amp * 1.4;
         }
       }));
 
+      // lags even further and swings widest since it's the loose tip
       mid.add(new Node({
         x: 0, y: 34,
         render: (ctx) => drawTentacle(ctx, 2.8, 32, 'rgba(140, 95, 215, 0.45)'),
         behavior: (node, dt, elapsed) => {
-          // Lags further still, and swings widest — the loose tip.
           node.rotation = Math.sin(elapsed * pulseRate + phase + i * 0.35 - 1.2) * amp * 1.8;
         }
       }));
     });
 
-    // --- bell drawn last so it sits in front of the tentacles ---
+    // bell goes last so it sits in front of the tentacles. squash and
+    // stretch, widening as it flattens keeps the apparent volume the same
+    // so it reads as a muscle instead of the shape just growing
     jelly.add(new Node({
       x: 0, y: 0,
       render: drawBell,
       behavior: (node, dt, elapsed) => {
         const p = Math.sin(elapsed * pulseRate + phase);
-        // Squash and stretch: widening as it flattens conserves apparent
-        // volume, which is what makes the pulse read as a muscle rather
-        // than the whole shape just growing.
         node.scaleX = 1 + p * 0.10;
         node.scaleY = 1 - p * 0.13;
       }
     }));
 
-    // Assignment 3 hooks — not read yet.
+    // hooks for assignment 3, nothing reads these yet
     jelly.points = config.points ?? 10;
     jelly.alive = true;
 
@@ -208,12 +199,8 @@
   }
 
 
-  // ===================================================================
-  // SEABED
-  // ===================================================================
-
-  // One seaweed segment: origin at its BOTTOM joint, growing upward
-  // (negative y), tapering as it goes.
+  // one seaweed segment. origin is at its bottom joint and it grows
+  // upward into negative y, tapering as it goes
   function drawFrond(ctx, w, len, color) {
     ctx.fillStyle = color;
     ctx.beginPath();
@@ -225,9 +212,9 @@
     ctx.fill();
   }
 
-  // A seaweed stalk: a chain of segments, each parented to the one
-  // below it. Same lag trick as the tentacles — the sway starts at the
-  // base and travels up, so the tip whips furthest and latest.
+  // a seaweed stalk, built as a chain where each link is parented to the
+  // one below it. same lag idea as the tentacles, except the sway starts
+  // at the base and travels up, so the tip whips furthest and latest
   function makeSeaweed(config = {}) {
     const swayRate = config.swayRate ?? 0.9;
     const phase    = config.phase ?? 0;
@@ -244,17 +231,17 @@
     let length = 46;
 
     for (let i = 0; i < links; i++) {
-      // Fade and narrow toward the tip.
+      // fades and narrows toward the tip
       const shade = `rgba(45, ${130 - i * 12}, ${105 - i * 8}, ${0.85 - i * 0.09})`;
       const w = width, len = length;
 
+      // the root sits on the seabed and every other link sits on top of
+      // its parent. amplitude grows with height and each link lags the
+      // one below, so the stalk ripples instead of pivoting as one piece
       const seg = parent.add(new Node({
-        // Root sits at the seabed; every other link sits atop its parent.
         y: i === 0 ? 0 : -length * 1.18,
         render: (ctx) => drawFrond(ctx, w, len, shade),
         behavior: (node, dt, elapsed) => {
-          // Amplitude grows with height and each link lags the one below,
-          // so the whole stalk ripples instead of pivoting rigidly.
           const amp = 0.07 + i * 0.06;
           node.rotation = Math.sin(elapsed * swayRate + phase - i * 0.45) * amp;
         }
@@ -268,9 +255,9 @@
     return base;
   }
 
-  // Static coral clump — a fan of stubby branches from a common base.
-  // No animation: coral is rigid, and a still element gives the eye
-  // something to measure the moving parts against.
+  // static coral clump, just a fan of stubby branches off a shared base.
+  // left unanimated on purpose since coral is rigid, and having something
+  // still gives the eye a reference for the moving stuff
   function makeCoral(config = {}) {
     const color = config.color ?? 'rgba(230, 110, 140, 0.8)';
 
@@ -281,14 +268,15 @@
       render: (ctx) => {
         ctx.fillStyle = color;
 
-        // Branch angles, in radians from vertical.
+        // branch angles in radians off vertical
         const branches = [-0.75, -0.35, 0, 0.35, 0.75];
 
         for (const angle of branches) {
           ctx.save();
           ctx.rotate(angle);
 
-          const len = 34 + Math.abs(angle) * -18;   // outer branches shorter
+          // outer branches come out shorter
+          const len = 34 + Math.abs(angle) * -18;
           ctx.beginPath();
           ctx.moveTo(-5, 0);
           ctx.lineTo(5, 0);
@@ -297,7 +285,7 @@
           ctx.closePath();
           ctx.fill();
 
-          // Rounded tip.
+          // rounded tip
           ctx.beginPath();
           ctx.arc(0, -len, 3.5, 0, Math.PI * 2);
           ctx.fill();
@@ -308,7 +296,7 @@
     });
   }
 
-  // Seabed silhouette behind everything on the floor.
+  // seabed silhouette that sits behind everything on the floor
   function drawSeabed(ctx) {
     ctx.fillStyle = 'rgba(12, 38, 74, 0.9)';
     ctx.beginPath();
@@ -323,12 +311,9 @@
   }
 
 
-  // ===================================================================
-  // DRIFTING PARTICLES
-  // Flat objects, not Nodes — they have no parts, so a hierarchy would
-  // be overkill. Just enough motion to make the water feel occupied.
-  // ===================================================================
-
+  // floating particles. these are plain objects instead of nodes since
+  // they have no parts, so a hierarchy would be overkill. just enough
+  // motion to keep the water from feeling empty
   const particles = [];
 
   for (let i = 0; i < 45; i++) {
@@ -336,10 +321,10 @@
       x: Math.random() * canvas.width,
       y: Math.random() * canvas.height,
       radius: 1 + Math.random() * 2.5,
-      speed: 4 + Math.random() * 14,          // slow upward drift
-      swayAmp: 6 + Math.random() * 14,        // how far it wanders sideways
+      speed: 4 + Math.random() * 14,
+      swayAmp: 6 + Math.random() * 14,
       swayRate: 0.3 + Math.random() * 0.6,
-      phase: Math.random() * Math.PI * 2,     // so they don't sway in unison
+      phase: Math.random() * Math.PI * 2,
       alpha: 0.12 + Math.random() * 0.25
     });
   }
@@ -348,7 +333,7 @@
     for (const p of particles) {
       p.y -= p.speed * dt;
 
-      // Recycle off the bottom once it clears the top.
+      // recycle back to the bottom once it clears the top
       if (p.y < -5) {
         p.y = canvas.height + 5;
         p.x = Math.random() * canvas.width;
@@ -358,8 +343,8 @@
 
   function drawParticles(elapsed) {
     for (const p of particles) {
-      // Sway is computed at draw time from elapsed rather than stored,
-      // so it costs no state and never accumulates drift.
+      // sway gets computed here from elapsed instead of being stored, so
+      // it costs no state and can't accumulate drift over a long run
       const x = p.x + Math.sin(elapsed * p.swayRate + p.phase) * p.swayAmp;
 
       ctx.fillStyle = `rgba(200, 225, 255, ${p.alpha})`;
@@ -370,16 +355,7 @@
   }
 
 
-  // ===================================================================
-  // SCENE
-  // Varying size, speed, depth and pulse rate keeps the group from
-  // looking like copies. Smaller + faster reads as further away.
-  //
-  // `points` is unused in Assignment 2 (no input yet), but it's the
-  // hook Assignment 3 needs when these become shootable targets —
-  // smaller and faster is worth more.
-  // ===================================================================
-
+  // the seabed layer, a mix of swaying seaweed and static coral
   const seabed = [
     makeSeaweed({ x:  40, scale: 1.0,  swayRate: 0.8,  phase: 0.0, links: 5 }),
     makeCoral  ({ x: 110, scale: 0.9,  color: 'rgba(228, 105, 135, 0.75)' }),
@@ -394,6 +370,10 @@
     makeCoral  ({ x: 755, scale: 0.75, color: 'rgba(235, 130, 120, 0.7)' })
   ];
 
+  // varying size, speed, depth and pulse rate keeps the jellyfish from
+  // looking like copies of each other. smaller and faster reads as
+  // further away. points isn't used yet since assignment 2 has no input,
+  // but it's the hook assignment 3 needs once these become targets
   const scene = [
     makeCreature({ x:  60, y: 140, scale: 0.55, speed: 78, pulseRate: 3.1, phase: 0.0, points: 30 }),
     makeCreature({ x: 320, y: 230, scale: 0.75, speed: 58, pulseRate: 2.5, phase: 1.7, points: 20 }),
@@ -411,10 +391,10 @@
   }
 
   function draw(elapsed) {
-    // Canvas doesn't self-clear; without this every old frame stays painted.
+    // canvas doesn't clear itself, without this every old frame stays painted
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    // Painter's order, back to front: particles, floor, plants, jellies.
+    // painter's order, back to front
     drawParticles(elapsed);
     drawSeabed(ctx);
     for (const node of seabed) node.draw(ctx);
@@ -422,10 +402,12 @@
   }
 
   let lastTime = 0;
-  let elapsed = 0;   // total seconds since start, for sine-wave animation
+
+  // total seconds since start, drives all the sine waves
+  let elapsed = 0;
 
   function frame(timestamp) {
-    // Capped so the first frame (lastTime = 0) and tab-outs don't jump.
+    // capped so the first frame and tabbing away don't cause a huge jump
     const dt = Math.min((timestamp - lastTime) / 1000, 0.05);
     lastTime = timestamp;
     elapsed += dt;
@@ -433,7 +415,8 @@
     update(dt, elapsed);
     draw(elapsed);
 
-    requestAnimationFrame(frame);   // re-arm; this is what makes it a loop
+    // re-arming here is what loops it
+    requestAnimationFrame(frame);
   }
 
   requestAnimationFrame(frame);
