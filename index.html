@@ -2,13 +2,13 @@
 <html>
 <head>
   <meta charset="utf-8">
-  <title>COMP 590 - Assignment 2</title>
+  <title>COMP 590 - Assignment 3</title>
   <style>
     body { margin: 0; background: #1a1a2e; display: flex;
            justify-content: center; align-items: center; height: 100vh; }
     /* size the canvas with the width/height attributes, not css.
        css sizing just stretches the pixels and looks blurry */
-    canvas { background: #0f3460; border: 1px solid #444; }
+    canvas { background: #0f3460; border: 1px solid #444; cursor: crosshair; }
   </style>
 </head>
 <body>
@@ -128,17 +128,27 @@
       y: baseY,
       scale: size,
       behavior: (node, dt, elapsed) => {
-        node.x += speed * dt;
+        node.x += node.speed * dt;
 
         // wrap once it's fully off the right edge. scaled by size so the
         // big ones don't clip while they're still visible
-        if (node.x - 140 * size > canvas.width) node.x = -140 * size;
+        if (node.x - 140 * node.scaleX > canvas.width) {
+          node.x = -140 * node.scaleX;
+        }
 
         // rises on the contraction, sinks between pulses. jellyfish move
         // by squeezing water out of the bell
-        node.y = baseY + Math.sin(elapsed * pulseRate + phase) * 16;
+        node.y = node.baseY + Math.sin(elapsed * pulseRate + phase) * 16;
       }
     });
+
+    /*
+    //ASSIGNEMENT 3 UPDATE: baseY and speed live on the node now instead of
+     being trapped in closure variables. respawn needs to change them at
+     runtime when a shot jellyfish comes back with new traits
+    */
+    jelly.baseY = baseY;
+    jelly.speed = speed;
 
     // tentacles go first so they end up behind the bell. draw order is
     // depth, a 2d canvas has no z buffer
@@ -191,7 +201,7 @@
       }
     }));
 
-    // hooks for assignment 3, nothing reads these yet
+    //Assignment 3 Update: these two got declared in assignment 2 but nothing read them. the shooting mechanic uses them now
     jelly.points = config.points ?? 10;
     jelly.alive = true;
 
@@ -310,6 +320,50 @@
     ctx.fill();
   }
 
+  /*
+  //ASSIGNEMENT 3 UPDATE: hud. this is the view half of mvc, reading game
+   state without ever writing to it. drawn last so it sits on top of
+   everything else in the scene
+  */
+  function drawHud(ctx) {
+    ctx.save();
+
+    ctx.font = 'bold 22px Helvetica, Arial, sans-serif';
+    ctx.fillStyle = 'rgba(226, 240, 255, 0.92)';
+    ctx.textBaseline = 'top';
+
+    ctx.textAlign = 'left';
+    ctx.fillText('Score: ' + game.score, 16, 14);
+
+    // the clock turns red in the last ten seconds
+    ctx.textAlign = 'right';
+    ctx.fillStyle = game.timeLeft <= 10
+      ? 'rgba(255, 120, 140, 0.95)'
+      : 'rgba(226, 240, 255, 0.92)';
+    ctx.fillText('Time: ' + Math.ceil(game.timeLeft), canvas.width - 16, 14);
+
+    if (game.over) {
+      // dim the whole scene so the end card reads clearly
+      ctx.fillStyle = 'rgba(8, 20, 42, 0.72)';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      ctx.textAlign = 'center';
+      ctx.fillStyle = 'rgba(232, 244, 255, 0.95)';
+
+      ctx.font = 'bold 44px Helvetica, Arial, sans-serif';
+      ctx.fillText('Time!', canvas.width / 2, canvas.height / 2 - 70);
+
+      ctx.font = 'bold 30px Helvetica, Arial, sans-serif';
+      ctx.fillText('Final score: ' + game.score, canvas.width / 2, canvas.height / 2 - 10);
+
+      ctx.font = '19px Helvetica, Arial, sans-serif';
+      ctx.fillStyle = 'rgba(200, 220, 245, 0.8)';
+      ctx.fillText('press R to play again', canvas.width / 2, canvas.height / 2 + 40);
+    }
+
+    ctx.restore();
+  }
+
 
   // floating particles. these are plain objects instead of nodes since
   // they have no parts, so a hierarchy would be overkill. just enough
@@ -372,8 +426,7 @@
 
   // varying size, speed, depth and pulse rate keeps the jellyfish from
   // looking like copies of each other. smaller and faster reads as
-  // further away. points isn't used yet since assignment 2 has no input,
-  // but it's the hook assignment 3 needs once these become targets
+  // further away, and is worth more points
   const scene = [
     makeCreature({ x:  60, y: 140, scale: 0.55, speed: 78, pulseRate: 3.1, phase: 0.0, points: 30 }),
     makeCreature({ x: 320, y: 230, scale: 0.75, speed: 58, pulseRate: 2.5, phase: 1.7, points: 20 }),
@@ -383,8 +436,104 @@
     makeCreature({ x: 720, y: 330, scale: 0.65, speed: 66, pulseRate: 2.8, phase: 4.1, points: 25 })
   ];
 
+  /*
+  //ASSIGNEMENT 3 UPDATE: game state. this is the model half of mvc, kept
+   apart from both the input handler that writes to it and the draw code
+   that reads it
+  */
+  const game = {
+    score: 0,
+    timeLeft: 45,
+    over: false
+  };
+
+  /*
+  //ASSIGNEMENT 3 UPDATE: send a shot jellyfish back to the left edge with
+   fresh randomized traits, so the tank refills and no two rounds play the
+   same. respawning instead of deleting also means the scene array never
+   changes length, which keeps the update loop simple
+  */
+  function respawn(jelly) {
+    const size = 0.45 + Math.random() * 0.7;
+
+    jelly.scaleX = size;
+    jelly.scaleY = size;
+    jelly.x = -140 * size;
+    jelly.baseY = 110 + Math.random() * 330;
+    jelly.speed = 100 - size * 50;          // smaller ones move faster
+
+    // points scale inversely with size, so the hard targets pay more
+    jelly.points = Math.round((1.3 - size) * 45);
+    jelly.alive = true;
+  }
+
+    // assignment 3: input. this is the controller half of mvc. the listener
+  // fires on its own schedule, totally independent of the game loop,
+  // which is what event driven means
+  canvas.addEventListener('mousedown', (event) => {
+    //ASSIGNEMENT 3 UPDATE: clicks stop counting once the round ends
+    if (game.over) return;
+
+    // clientX and clientY are relative to the browser viewport, not the
+    // canvas, so the canvas position has to be subtracted out. the extra
+    // scale factor handles the case where css display size differs from
+    // the canvas resolution
+    const rect = canvas.getBoundingClientRect();
+    const mx = (event.clientX - rect.left) * (canvas.width / rect.width);
+    const my = (event.clientY - rect.top) * (canvas.height / rect.height);
+
+    // iterate backwards so the check runs front to back. the scene array
+    // draws in order, so the last one drawn is on top and should be the
+    // one that gets hit when two overlap
+    for (let i = scene.length - 1; i >= 0; i--) {
+      const jelly = scene[i];
+      if (!jelly.alive) continue;
+
+      // the bell sits at the jellyfish's origin, so a circle around that
+      // point is a close enough hitbox. radius scales with the creature
+      const dx = mx - jelly.x;
+      const dy = my - (jelly.y - 22 * jelly.scaleX);
+      const radius = 52 * jelly.scaleX;
+
+      // compare squared distances to skip the square root
+      if (dx * dx + dy * dy <= radius * radius) {
+        //ASSIGNEMENT 3 UPDATE: bank the points, then recycle it back in
+        game.score += jelly.points;
+        respawn(jelly);
+        break;   // one click kills at most one jellyfish
+      }
+    }
+  });
+
+  /*
+  //ASSIGNEMENT 3 UPDATE: second event listener, this one on the keyboard.
+   R resets the round. keydown goes on window rather than the canvas
+   because a canvas element can't hold keyboard focus on its own
+  */
+  window.addEventListener('keydown', (event) => {
+    if (event.key === 'r' || event.key === 'R') {
+      game.score = 0;
+      game.timeLeft = 45;
+      game.over = false;
+      for (const jelly of scene) respawn(jelly);
+    }
+  });
+
 
   function update(dt, elapsed) {
+    /*
+    //ASSIGNEMENT 3 UPDATE: the round clock runs on simulation steps, not
+     wall clock, so 45 seconds of game time is exactly the same length of
+     round regardless of what the frame rate is doing
+    */
+    if (!game.over) {
+      game.timeLeft -= dt;
+      if (game.timeLeft <= 0) {
+        game.timeLeft = 0;
+        game.over = true;
+      }
+    }
+
     updateParticles(dt);
     for (const node of seabed) node.update(dt, elapsed);
     for (const node of scene) node.update(dt, elapsed);
@@ -398,24 +547,74 @@
     drawParticles(elapsed);
     drawSeabed(ctx);
     for (const node of seabed) node.draw(ctx);
-    for (const node of scene) node.draw(ctx);
+        for (const node of scene) {
+      //Assignment 3: skip anything that's been shot duh.
+      if (node.alive) node.draw(ctx);
+    }
+
+    //ASSIGNEMENT 3 UPDATE: hud goes last so nothing paints over it
+    drawHud(ctx);
   }
 
+
+  /*
+  //ASSIGNEMENT 3 UPDATE: fixed timestep, variable rendering.
+   assignment 2 ran one update per frame sized to however long that
+   frame took, so no two runs produced the same numbers. now the
+   simulation only ever advances in STEP sized chunks. update always
+   receives the same value, so every sine wave in the scene hits the
+   same result on the same tick no matter what the frame rate does.
+   rendering still happens once per frame whenever the browser is ready,
+   which is the variable rendering half
+  */
+  const STEP = 1 / 60;
+
+  //ASSIGNEMENT 3 UPDATE: real time waiting to be spent on simulation steps
+  let accumulator = 0;
   let lastTime = 0;
 
-  // total seconds since start, drives all the sine waves
-  let elapsed = 0;
+  //ASSIGNEMENT 3 UPDATE: simulated seconds counted in whole steps instead of
+  // wall clock. replaces the elapsed variable from assignment 2 and is
+  // what drives every animation in the scene
+  let simTime = 0;
+
+  //ASSIGNEMENT 3 UPDATE: counters for the determinism check in the console
+  let tickCount = 0;
+  let frameCount = 0;
+  const DEBUG = true;
 
   function frame(timestamp) {
-    // capped so the first frame and tabbing away don't cause a huge jump
-    const dt = Math.min((timestamp - lastTime) / 1000, 0.05);
+    const realElapsed = (timestamp - lastTime) / 1000;
     lastTime = timestamp;
-    elapsed += dt;
 
-    update(dt, elapsed);
-    draw(elapsed);
+    accumulator += realElapsed;
 
-    // re-arming here is what loops it
+    /*
+    //ASSIGNEMENT 3 UPDATE: guard against the spiral of death. if the tab sat in
+     the background for 30 seconds the accumulator would hold 1800
+     pending steps, and running them would take longer than a frame,
+     which makes the next accumulator even bigger and locks the page up.
+     capping it drops the missed time instead
+    */
+    if (accumulator > 0.25) accumulator = 0.25;
+
+    //ASSIGNEMENT 3 UPDATE: spend the accumulated time in exact fixed increments a slow frame runs this several times, a fast one runs it zero times
+    while (accumulator >= STEP) {
+      update(STEP, simTime);
+      simTime += STEP;
+      accumulator -= STEP;
+
+      //ASSIGNMENT 3 UPDATE: proof of determinism. these print identical values on every refresh because update never sees anything but STEP
+      if (DEBUG && tickCount < 12) console.log('jelly.x: ' + scene[0].x);
+      tickCount++;
+    }
+
+    //ASSIGNEMENT 3 UPDATE: draw runs once per frame no matter how many simulation steps just happened
+    draw(simTime);
+
+    if (DEBUG && frameCount < 6) console.log('frame: ' + (frameCount + 1));
+    frameCount++;
+
     requestAnimationFrame(frame);
   }
 
