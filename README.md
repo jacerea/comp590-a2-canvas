@@ -3,14 +3,14 @@
 COMP 590: Build Your Own Game Engine (Assignments 2 and 3)
 
 A hierarchical 2D scene on the HTML5 Canvas. No libraries, no build step, no
-dependencies — everything is in a single self-contained `index.html`. Open it in
+dependencies, everything is in a single self-contained `index.html`. Open it in
 a browser to run it.
 
 ![Gameplay](screenshots/hud-example.png)
 
 ## How to play
 - 45 second round
-- Click a jellyfish to score — it respawns from the left at a new size and speed
+- Click a jellyfish to score, it respawns from the left at a new size and speed
 - Smaller jellyfish move faster and pay more
 - Press **R** to restart
 
@@ -41,7 +41,7 @@ jellyfish                      seaweed stalk
 differing only in phase offset and amplitude.
 
 - Each tentacle segment lags the one above it, so sway travels down the chain
-- Seaweed works in reverse — motion starts at the base and travels up
+- Seaweed works in reverse, motion starts at the base and travels up
 - The bell squashes and stretches so the pulse reads as a muscle, not growth
 - Coral is deliberately static, to give the eye a fixed reference
 
@@ -76,7 +76,7 @@ jelly.x: 65.19999999999999     jelly.x: 72.99999999999997
 ```
 
 Identical positions, different frame boundaries. The trailing digits are
-floating point drift from repeated addition — the same digits every run, which
+floating point drift from repeated addition, the same digits every run, which
 is the point.
 
 ![Determinism run 1](screenshots/determinism-run1.png)
@@ -84,11 +84,11 @@ is the point.
 
 ### MVC separation
 
-- **Controller** — `mousedown` on the canvas, `keydown` on the window. Both fire
+- **Controller**, `mousedown` on the canvas, `keydown` on the window. Both fire
   independently of the game loop
-- **Model** — the `game` object (score, time, round state) plus the scene graph.
+- **Model**, the `game` object (score, time, round state) plus the scene graph.
   Nothing here draws
-- **View** — `draw()` and `drawHud()`. These read state and never write it
+- **View**, `draw()` and `drawHud()`. These read state and never write it
 
 The round clock ticks on simulation steps, not wall clock, so every round is
 exactly the same length regardless of frame rate.
@@ -107,7 +107,7 @@ exactly the same length regardless of frame rate.
 
 ### Respawning
 
-- Shot jellyfish are recycled, not deleted — the same node returns from the left
+- Shot jellyfish are recycled, not deleted , the same node returns from the left
   with new random traits
 - The scene array never changes length, so no allocation happens during play
 - Point values scale inversely with size
