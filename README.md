@@ -1,6 +1,6 @@
 # Jellyfish Gallery
 
-COMP 590 — Build Your Own Game Engine (Assignments 2 and 3)
+COMP 590: Build Your Own Game Engine (Assignments 2 and 3)
 
 A hierarchical 2D scene on the HTML5 Canvas. No libraries, no build step, no
 dependencies — everything is in a single self-contained `index.html`. Open it in
@@ -9,7 +9,6 @@ a browser to run it.
 ![Gameplay](screenshots/hud-example.png)
 
 ## How to play
-
 - 45 second round
 - Click a jellyfish to score — it respawns from the left at a new size and speed
 - Smaller jellyfish move faster and pay more
@@ -49,6 +48,8 @@ differing only in phase offset and amplitude.
 ---
 
 ## Assignment 3 Update
+
+Quick Note: in the code, you will see what code I have added for assignment 3 that differs from assignment 2.
 
 ### Fixed timestep, variable rendering
 
@@ -117,8 +118,7 @@ exactly the same length regardless of frame rate.
 
 ## Notes
 
-- No external libraries in either assignment. All geometry, animation and game
-  logic is hand written
+- No external libraries in either assignment.
 - Opening the file via `file://` produces a console warning about unique
   security origins. That comes from Chrome's local file handling, not the code,
   and disappears when served over HTTP
