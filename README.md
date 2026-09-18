@@ -3,7 +3,7 @@
 COMP 590: Build Your Own Game Engine (Assignments 2 and 3)
 
 A hierarchical 2D scene on the HTML5 Canvas. No libraries, no build step, no
-dependencies, everything is in a single self-contained `index.html`. Open it in
+dependencies, everything is in a single self-contained index.html. Open it in
 a browser to run it.
 
 ![Gameplay](screenshots/hud-example.png)
@@ -18,7 +18,7 @@ a browser to run it.
 
 ## Assignment 2: the simulation engine
 
-**Scene graph.** Everything on screen is a `Node` with a position, rotation and
+**Scene graph.** Everything on screen is a Node with a position, rotation and
 scale relative to its parent, plus a list of children. Drawing one means:
 `save()` → transform → draw self → recurse into children → `restore()`. Children
 inherit the parent's motion for free.
